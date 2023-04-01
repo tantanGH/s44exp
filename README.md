@@ -1,7 +1,5 @@
 # S44EXP.X
-ADPCM/PCM/WAV/MP3 player for X680x0/Human68k
-
-以下の形式のファイルを再生するプレーヤーです。
+ADPCM/PCM/WAV player for X680x0/Human68k
 
 [MP3EXP.X](https://github.com/tantanGH/mp3exp)からMP3のサポートを外して軽量化したものになります。(ファイルサイズ1/3以下)
 MP3以外の機能は同じです。使い方などは MP3EXP.X の説明を参考にしてください。
