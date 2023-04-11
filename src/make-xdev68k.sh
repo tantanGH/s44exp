@@ -10,7 +10,7 @@ WORKING_DIR=`pwd`
 
 TARGET_FILE="S44EXP.X"
 DOC_FILE="../S44EXP.DOC"
-ZIP_FILE="../../S4EXP110.ZIP"
+ZIP_FILE="../../S4EXP111.ZIP"
 
 CC=${XDEV68K_DIR}/m68k-toolchain/bin/m68k-elf-gcc
 GAS2HAS="${XDEV68K_DIR}/util/x68k_gas2has.pl -cpu 68000 -inc doscall.inc -inc iocscall.inc"

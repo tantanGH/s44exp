@@ -78,10 +78,12 @@ static void show_help_message() {
 //  printf("     -s    ... wait vsync for KMD display\n");
   printf("\n");
   printf("     -b<n> ... buffer size [x 64KB] (2-96,default:4)\n");
+#ifdef MP3_SUPPORT
   printf("     -u    ... use 060turbo/TS-6BE16 high memory\n");
+#endif
 //  printf("\n");
 //  printf("     -f    ... do not use .s44/.a44/.wav as mp3 playback cache\n");
-//  printf("     -a    ... use MP3EXP for ADPCM encoding\n");
+//  printf("     -a    ... use S44EXP for ADPCM encoding\n");
 //  printf("     -z    ... use little endian for .s44/.m44\n");
   printf("     -h    ... show help message\n");
 }
@@ -97,7 +99,7 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
 
   // parse command line options
   uint8_t* pcm_file_name = NULL;
-  int16_t playback_driver = DRIVER_MP3EXP;
+  int16_t playback_driver = DRIVER_S44EXP;
   int16_t playback_volume = 7;
   int16_t loop_count = 1;
   int16_t mp3_quality = 1;
@@ -344,7 +346,7 @@ printf("f");
   } else if (pcm8_type == PCM8_TYPE_PCM8A) {
     playback_driver = DRIVER_PCM8A;
   } else {
-    playback_driver = DRIVER_MP3EXP;
+    playback_driver = DRIVER_S44EXP;
   }
 
   // cursor off
@@ -671,7 +673,7 @@ try:
     printf("PCM driver    : %s\n",
       playback_driver == DRIVER_PCM8PP ? "PCM8PP" :
       playback_driver == DRIVER_PCM8A  ? "PCM8A"  :
-      "MP3EXP");
+      "S44EXP");
   
     if (input_format == FORMAT_ADPCM) {
       float pcm_1sec_size = pcm_freq * 0.5;
@@ -1156,14 +1158,17 @@ try:
     kmd_preserve_cursor_position(&kmd);
   }
 
-  // dummy wait to make sure DMAC start (200 msec)
-  for (int32_t t0 = ONTIME(); ONTIME() < t0 + 20;) {}
+  // dummy wait to make sure DMAC start (500 msec)
+  for (int32_t t0 = ONTIME(); ONTIME() < t0 + 50;) {}
 
   int16_t current_chain = 0;
   int32_t pcm8pp_block_counter = 0;
   if (pcm8_type == PCM8_TYPE_PCM8PP) {
     pcm8pp_block_counter = pcm8pp_get_block_counter(0);
   }
+
+  // for X68000Z DMAC BAR workaround
+  void* dmac_bar = (void*)B_LPEEK((uint32_t*)REG_DMAC_CH3_BAR); 
 
   for (;;) {
    
@@ -1277,10 +1282,13 @@ try:
         chain_tables[3].buffer, chain_tables[3].buffer + chain_tables[3].buffer_bytes);
 #endif
       }
+
     } else {
       void* cur_dmac_bar = (void*)B_LPEEK((uint32_t*)REG_DMAC_CH3_BAR);     // = next chain table pointer
-      if (cur_dmac_bar != cta->next) {
+//      if (cur_dmac_bar != cta->next) {    // this does not work with X68000Z EAK 1.13
+      if (cur_dmac_bar != dmac_bar) {       // for X68000Z EAK 1.13 workaround
         buffer_flip = 1;
+        dmac_bar = cur_dmac_bar;
 #ifdef DEBUG
         printf("cur_bar=%X, cta->next=%X\n", cur_dmac_bar, cta->next);
 #endif
