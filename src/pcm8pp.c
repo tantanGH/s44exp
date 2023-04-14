@@ -293,5 +293,6 @@ int32_t pcm8pp_keepchk() {
 
   uint8_t version = B_BPEEK((uint8_t*)(eye_catch_addr + 7));
 
-  return (memcmp(eye_catch, "PCM8++ ", 7) == 0 && version >= (0x20 + 83)) ? 1 : 0;
+//  return (memcmp(eye_catch, "PCM8++ ", 7) == 0 && version >= (0x20 + 83)) ? 1 : 0;
+  return (memcmp(eye_catch, "PCM8++ ", 7) == 0 && version >= (0x20 + 80)) ? 1 : 0;
 }
