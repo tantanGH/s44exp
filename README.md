@@ -42,14 +42,6 @@ pcm8a.x 無しでも内蔵ADPCMでの再生は可能ですが、16bitPCMデー�
 
 ---
 
-### Special Thanks
-
-* xdev68k thanks to ファミべのよっしんさん
-* HAS060.X on run68mac thanks to YuNKさん / M.Kamadaさん / GOROmanさん
-* HLK301.X on run68mac thanks to SALTさん / GOROmanさん
-
----
-
 ### History
 
 * 1.1.2 (2023/04/14) ... PCM8PP.X のバージョンチェックを少し緩和
