@@ -72,6 +72,7 @@ static void show_help_message() {
 //  printf("     -s    ... wait vsync for KMD display\n");
   printf("\n");
   printf("     -i <indirect-file> ... playlist indirect file\n");
+  printf("     -s    ... shuffle play\n");
   printf("\n");
   printf("     -b<n> ... buffer size [x 64KB] (2-96,default:4)\n");
 //  printf("\n");
@@ -102,6 +103,7 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
   int16_t use_high_memory = 0;
   int16_t use_little_endian = 0;
   int16_t wait_vsync = 0;
+  int16_t shuffle_play = 0;
   int32_t adpcm_output_freq = 15625;
 
   // play list
@@ -129,6 +131,8 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
         full_screen = 1;
       } else if (argv[i][1] == 'c') {
         clear_screen = 1;
+      } else if (argv[i][1] == 's') {
+        shuffle_play = 1;
       } else if (argv[i][1] == 'b') {
         num_chains = atoi(argv[i]+2);
         if (num_chains < 2 || num_chains > 96) {
@@ -248,6 +252,21 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
   if (num_pcm_files == 0) {
     show_help_message();
     goto exit;
+  }
+
+  if (shuffle_play) {
+    // randomize
+    srand(ONTIME());
+    for (int16_t i = 0; i < num_pcm_files * 10; i++) {
+      int16_t a = rand() % num_pcm_files;
+      int16_t b = rand() % num_pcm_files;
+      uint8_t* c = pcm_files[ a ].file_name;
+      int16_t v = pcm_files[ a ].volume;
+      pcm_files[ a ].file_name = pcm_files[ b ].file_name;
+      pcm_files[ a ].volume = pcm_files[ b ].volume;
+      pcm_files[ b ].file_name = c;
+      pcm_files[ b ].volume = v;
+    }
   }
 
   // determine PCM8 type
@@ -1037,7 +1056,12 @@ try:
         if (use_kmd) B_PRINT("\n\n");
         B_PRINT("\rskipped.\x1b[0K\n");
         rc = 2;
-        break;      
+        break;
+      } else if (playback_index > 0 && scan_code == KEY_SCAN_CODE_LEFT) {
+        if (use_kmd) B_PRINT("\n\n");
+        B_PRINT("\rbacked.\x1b[0K\n");
+        rc = 3;
+        break;
       } else if (scan_code == KEY_SCAN_CODE_SPACE) {
         if (paused) {
           if (playback_driver == DRIVER_PCM8PP) {
@@ -1511,6 +1535,10 @@ catch:
         goto loop;
       }
     }
+  } else if (rc == 3) {
+    playback_index--;
+    first_play = 1;
+    goto loop;
   }
 
   B_PRINT("\r\n");
