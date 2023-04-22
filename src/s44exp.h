@@ -1,7 +1,7 @@
 #ifndef __H_S44EXP__
 #define __H_S44EXP__
 
-#define VERSION "1.2.0 (2023/04/22)"
+#define VERSION "1.2.1 (2023/04/22)"
 
 #define REG_DMAC_CH2_CSR (0xE84080 + 0x00)
 #define REG_DMAC_CH3_BAR (0xE840C0 + 0x1C)
