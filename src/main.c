@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <jstring.h>
 #include <stat.h>
 #include <doslib.h>
 #include <iocslib.h>
@@ -20,9 +21,6 @@
 #include "adpcm_encode.h"
 #include "raw_decode.h"
 #include "wav_decode.h"
-#ifdef MP3_SUPPORT
-#include "mp3_decode.h"
-#endif
 #include "ym2608_decode.h"
 
 // artwork
@@ -35,8 +33,7 @@
 #include "kmd.h"
 #include "s44exp.h"
 
-//#define DEBUG
-
+// original function key mode
 static int32_t g_funckey_mode = -1;
 
 // abort vector handler
@@ -65,22 +62,18 @@ static void abort_application() {
 
 // show help message
 static void show_help_message() {
-  printf("usage: s44exp [options] <input-file[.pcm|.sXX|.mXX|.aXX|.nXX|.wav|.mp3]>\n");
+  printf("usage: s44exp [options] <input-file[.pcm|.sXX|.mXX|.aXX|.nXX|.wav]>\n");
   printf("options:\n");
   printf("     -v[n] ... volume (1-15, default:7)\n");
   printf("     -l[n] ... loop count (none:endless, default:1)\n");
-#ifdef MP3_SUPPORT
-  printf("     -q[n] ... mp3 quality (0:high, 1:normal, 2:low, default:1)\n");
-#endif
   printf("     -t[n] ... album art display brightness (1-100, default:off)\n");
   printf("     -x    ... full screen\n");
   printf("     -c    ... clear screen after full screen playback\n");
 //  printf("     -s    ... wait vsync for KMD display\n");
   printf("\n");
+  printf("     -i <indirect-file> ... playlist indirect file\n");
+  printf("\n");
   printf("     -b<n> ... buffer size [x 64KB] (2-96,default:4)\n");
-#ifdef MP3_SUPPORT
-  printf("     -u    ... use 060turbo/TS-6BE16 high memory\n");
-#endif
 //  printf("\n");
 //  printf("     -f    ... do not use .s44/.a44/.wav as mp3 playback cache\n");
 //  printf("     -a    ... use S44EXP for ADPCM encoding\n");
@@ -102,16 +95,19 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
   int16_t playback_driver = DRIVER_S44EXP;
   int16_t playback_volume = 7;
   int16_t loop_count = 1;
-  int16_t mp3_quality = 1;
-  int16_t mp3_pic_brightness = 0;
+  int16_t pic_brightness = 0;
   int16_t full_screen = 0;
   int16_t clear_screen = 0;
   int16_t num_chains = 4;
   int16_t use_high_memory = 0;
-  int16_t mp3_cache_unuse = 0;
   int16_t use_little_endian = 0;
   int16_t wait_vsync = 0;
   int32_t adpcm_output_freq = 15625;
+
+  // play list
+  static PCM_FILE pcm_files[ MAX_PCM_FILES ];
+  int16_t num_pcm_files = 0;
+  uint8_t* indirect_file_names = NULL;
 
   for (int16_t i = 1; i < argc; i++) {
     if (argv[i][0] == '-' && strlen(argv[i]) >= 2) {
@@ -123,17 +119,9 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
         }
       } else if (argv[i][1] == 'l') {
         loop_count = atoi(argv[i]+2);
-#ifdef MP3_SUPPORT
-      } else if (argv[i][1] == 'q') {
-        mp3_quality = atoi(argv[i]+2);
-        if (mp3_quality < 0 || mp3_quality > 2 || strlen(argv[i]) < 3) {
-          show_help_message();
-          goto exit;
-        }
-#endif
       } else if (argv[i][1] == 't') {
-        mp3_pic_brightness = atoi(argv[i]+2);
-        if (mp3_pic_brightness < 0 || mp3_pic_brightness > 100 || strlen(argv[i]) < 3) {
+        pic_brightness = atoi(argv[i]+2);
+        if (pic_brightness < 0 || pic_brightness > 100 || strlen(argv[i]) < 3) {
           show_help_message();
           goto exit;
         }
@@ -147,27 +135,94 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
           show_help_message();
           goto exit;
         }
-      } else if (argv[i][1] == 'u') {
-        if (!himem_isavailable()) {
-          printf("error: high memory driver is not installed.\n");
-          goto exit;
-        }
-        use_high_memory = 1;
       } else if (argv[i][1] == 's') {
         wait_vsync = 1;
-      } else if (argv[i][1] == 'f') {
-        mp3_cache_unuse = 1;
-      } else if (argv[i][1] == 'z') {
-        use_little_endian = 1;
-      } else if (argv[i][1] == 'o') {
-        int16_t out_freq = atoi(argv[i]+2);
-        if (out_freq == 2) {
-          adpcm_output_freq = 7812;
-        } else if (out_freq == 1) {
-          adpcm_output_freq = 10417;
-        } else {
-          adpcm_output_freq = 15625;
+
+//      } else if (argv[i][1] == 'u') {
+//        if (!himem_isavailable()) {
+//          printf("error: high memory driver is not installed.\n");
+//          goto exit;
+//        }
+//        use_high_memory = 1;
+//      } else if (argv[i][1] == 'z') {
+//        use_little_endian = 1;
+//      } else if (argv[i][1] == 'o') {
+//        int16_t out_freq = atoi(argv[i]+2);
+//        if (out_freq == 2) {
+//          adpcm_output_freq = 7812;
+//        } else if (out_freq == 1) {
+//          adpcm_output_freq = 10417;
+//        } else {
+//          adpcm_output_freq = 15625;
+//        }
+
+      } else if (argv[i][1] == 'i' && i+1 < argc) {
+
+        // indirect file
+        int16_t count = 0;
+        FILE* fp = fopen(argv[i+1], "r");
+        if (fp != NULL) {
+
+          // phase1: count lines
+          static uint8_t line[ MAX_PATH_LEN + 1 ];
+          while (fgets(line, MAX_PATH_LEN, fp) != NULL) {
+
+            for (int16_t i = 0; i < MAX_PATH_LEN; i++) {
+              if (line[i] <= ' ') {
+                line[i] = '\0';
+              }
+            }
+
+            if (strlen(line) < 5) continue;
+
+            count++;
+          }
+          fclose(fp);
+          fp = NULL;
+
+          if (count > MAX_PCM_FILES) {
+            printf("error: too many pcm files in the indirect file.\n");
+            goto exit;
+          }
+
+          // phase2: read lines
+          indirect_file_names = himem_malloc( MAX_PATH_LEN * count, 0 );
+          fp = fopen(argv[i+1], "r");
+          while (fgets(line, MAX_PATH_LEN, fp) != NULL) {
+
+            for (int16_t i = 0; i < MAX_PATH_LEN; i++) {
+              if (line[i] <= ' ') {
+                line[i] = '\0';
+              }
+            }
+
+            if (strlen(line) < 5) continue;
+
+            int16_t volume = playback_volume;
+            for (int16_t i = 0; i < MAX_PATH_LEN; i++) {
+              if (line[i] == ',') {
+                if (i+2 < MAX_PATH_LEN && line[i+1] == 'v') {
+                  int16_t v = atoi(line+i+2);
+                  if (v >= 1 && v <= 12) volume = v;
+                }
+                line[i] = '\0';
+                break;
+              }
+            }
+     
+            pcm_files[ num_pcm_files ].file_name = indirect_file_names + MAX_PATH_LEN * num_pcm_files;
+            strcpy(pcm_files[ num_pcm_files ].file_name, line);
+            pcm_files[ num_pcm_files ].volume = volume;
+            num_pcm_files++;
+
+          }
+
+          fclose(fp);
+          fp = NULL;
+
         }
+        i++;
+
       } else if (argv[i][1] == 'h') {
         show_help_message();
         goto exit;
@@ -176,30 +231,99 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
         goto exit;
       }
     } else {
-      if (pcm_file_name != NULL) {
-        printf("error: multiple files are not supported.\n");
-        goto exit;
+//      if (pcm_file_name != NULL) {
+//        printf("error: multiple files are not supported.\n");
+//        goto exit;
+//      }
+//      pcm_file_name = argv[i];
+      if (strlen(argv[i]) >= 5) {
+        pcm_files[ num_pcm_files ].file_name = argv[i];
+        pcm_files[ num_pcm_files ].volume = playback_volume;
+        num_pcm_files++;
       }
-      pcm_file_name = argv[i];
     }
   }
 
-  if (pcm_file_name == NULL || strlen(pcm_file_name) < 5) {
+//  if (pcm_file_name == NULL || strlen(pcm_file_name) < 5) {
+  if (num_pcm_files == 0) {
     show_help_message();
     goto exit;
   }
 
+  // determine PCM8 type
+  int16_t pcm8_type = PCM8_TYPE_NONE;
+  if (pcm8pp_keepchk()) {
+    pcm8_type = PCM8_TYPE_PCM8PP;
+  } else if (pcm8a_keepchk()) {
+    pcm8_type = PCM8_TYPE_PCM8A;
+  } else if (pcm8_keepchk()) {
+    pcm8_type = PCM8_TYPE_PCM8;
+  }
+
+  // playback driver selection
+  if (pcm8_type == PCM8_TYPE_PCM8PP) {
+    playback_driver = DRIVER_PCM8PP;
+  } else if (pcm8_type == PCM8_TYPE_PCM8A) {
+    playback_driver = DRIVER_PCM8A;
+  } else {
+    playback_driver = DRIVER_S44EXP;
+  }
+
+  // cursor off
+  C_CUROFF();
+
+  // set abort vectors
+  uint32_t abort_vector1 = INTVCS(0xFFF1, (int8_t*)abort_application);
+  uint32_t abort_vector2 = INTVCS(0xFFF2, (int8_t*)abort_application);  
+
+  // enter supervisor mode
+  if (pic_brightness > 0) {
+    B_SUPER(0);
+  }
+
+  int16_t playback_index = 0;
+  int16_t first_play = 1;
+
+loop:
+
+  // init crtc if album art is required
+  if (pic_brightness > 0) {
+    G_CLR_ON();
+    crtc_set_extra_mode(0);
+  }
+
+  // full screen mode
+  if (full_screen) {
+    // function key display off
+    g_funckey_mode = C_FNKMOD(-1);
+    C_FNKMOD(3);
+    C_CLS_AL();
+    if (pic_brightness == 0) {
+      G_CLR_ON();
+    }
+  }
+
+  // for text plane 2 masking (for XM6g bug woraround, we cannot scroll position before updating)
+  if (pic_brightness > 0) {
+    TPALET2(4, 0x0001);
+    TPALET2(5, TPALET2(1,-1));
+    TPALET2(6, TPALET2(2,-1));
+    TPALET2(7, TPALET2(3,-1));
+    struct TXFILLPTR txfil = { 2, 0, 0, 768, 512, 0xffff };
+    TXFILL(&txfil);
+  }
+
+  pcm_file_name = pcm_files[ playback_index ].file_name;
+  playback_volume = pcm_files[ playback_index ].volume;
+
   // input pcm file name and extension
   uint8_t* pcm_file_exp = pcm_file_name + strlen(pcm_file_name) - 4;
-
-  // cached pcm file name
-  static uint8_t pcm_cache_file_name[ MAX_PATH_LEN ];
 
   // input format check
   int16_t input_format = FORMAT_ADPCM;
   int32_t pcm_freq = 15625;
   int16_t pcm_channels = 1;
-  int16_t use_mp3_cache = 0;
+//  int16_t use_mp3_cache = 0;
   if (stricmp(".pcm", pcm_file_exp) == 0) {
     input_format = FORMAT_ADPCM;
     pcm_freq = 15625;                 // fixed
@@ -257,131 +381,9 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
     input_format = FORMAT_WAV;
     pcm_freq = -1;
     pcm_channels = -1;
-#ifdef MP3_SUPPORT
-  } else if (stricmp(".mp3", pcm_file_exp) == 0) {
-    input_format = FORMAT_MP3;
-    pcm_freq = -1;
-
-    // in case of quarter frequency mode, use 10.417kHz internal ADPCM
-    if (mp3_quality == 2) {
-      adpcm_output_freq = 10417;
-    }
-
-    // check s44/a44/m44/n44/wav file existence for cache use
-    if (!mp3_cache_unuse) {
-      struct stat stat_buf;
-      strcpy(pcm_cache_file_name, pcm_file_name);
-      do {
-        strcpy(pcm_cache_file_name + strlen(pcm_cache_file_name) - 4, ".s44");
-        if (stat(pcm_cache_file_name, &stat_buf) == 0) {
-          input_format = FORMAT_RAW;
-          pcm_freq = 44100;
-          pcm_channels = 2;
-          use_mp3_cache = 1;
-          break;
-        }
-        strcpy(pcm_cache_file_name + strlen(pcm_cache_file_name) - 4, ".a44");
-        if (stat(pcm_cache_file_name, &stat_buf) == 0) {
-          input_format = FORMAT_YM2608;
-          pcm_freq = 44100;
-          pcm_channels = 2;
-          use_mp3_cache = 1;
-          break;
-        }
-        strcpy(pcm_cache_file_name + strlen(pcm_cache_file_name) - 4, ".m44");
-        if (stat(pcm_cache_file_name, &stat_buf) == 0) {
-          input_format = FORMAT_RAW;
-          pcm_freq = 44100;
-          pcm_channels = 1;
-          use_mp3_cache = 1;
-          break;
-        }
-        strcpy(pcm_cache_file_name + strlen(pcm_cache_file_name) - 4, ".n44");
-        if (stat(pcm_cache_file_name, &stat_buf) == 0) {
-          input_format = FORMAT_YM2608;
-          pcm_freq = 44100;
-          pcm_channels = 1;
-          use_mp3_cache = 1;
-          break;
-        }
-        strcpy(pcm_cache_file_name + strlen(pcm_cache_file_name) - 4, ".wav");
-        if (stat(pcm_cache_file_name, &stat_buf) == 0) {
-          input_format = FORMAT_WAV;
-          pcm_freq = -1;
-          pcm_channels = -1;
-          use_mp3_cache = 1;
-          break;
-        }
-        pcm_cache_file_name[0] = '\0';
-        use_mp3_cache = 0;
-      } while (0);
-    }
-#endif
   } else {
     printf("error: unknown format file (%s).\n", pcm_file_name);
     goto exit;
-  }
-printf("e");
-  // determine PCM8 type
-  int16_t pcm8_type = PCM8_TYPE_NONE;
-  if (pcm8pp_keepchk()) {
-    pcm8_type = PCM8_TYPE_PCM8PP;
-  } else if (pcm8a_keepchk()) {
-    pcm8_type = PCM8_TYPE_PCM8A;
-  } else if (pcm8_keepchk()) {
-    pcm8_type = PCM8_TYPE_PCM8;
-  }
-printf("f");
-  // PCM8A/PCM8PP is mandatory for MP3
-//  if (input_format == FORMAT_MP3) {
-//    if (pcm8_type != PCM8_TYPE_PCM8A && pcm8_type != PCM8_TYPE_PCM8PP) {
-//      printf("error: PCM8A (>=1.02) or PCM8PP (>=0.83d) is required for MP3 playback.\n");
-//      goto exit;    
-//    }
-//  }
-
-  // playback driver selection
-  if (pcm8_type == PCM8_TYPE_PCM8PP) {
-    playback_driver = DRIVER_PCM8PP;
-  } else if (pcm8_type == PCM8_TYPE_PCM8A) {
-    playback_driver = DRIVER_PCM8A;
-  } else {
-    playback_driver = DRIVER_S44EXP;
-  }
-
-  // cursor off
-  C_CUROFF();
-
-  // set abort vectors
-  uint32_t abort_vector1 = INTVCS(0xFFF1, (int8_t*)abort_application);
-  uint32_t abort_vector2 = INTVCS(0xFFF2, (int8_t*)abort_application);  
-
-  // enter supervisor mode and init crtc if album art is required
-  if (mp3_pic_brightness > 0) {
-    B_SUPER(0);
-    G_CLR_ON();
-    crtc_set_extra_mode(0);
-  }
-
-  // full screen mode
-  if (full_screen) {
-    // function key display off
-    g_funckey_mode = C_FNKMOD(-1);
-    C_FNKMOD(3);
-    C_CLS_AL();
-    if (mp3_pic_brightness == 0) {
-      G_CLR_ON();
-    }
-  }
-
-  // for text plane 2 masking (for XM6g bug woraround, we cannot scroll position before updating)
-  if (mp3_pic_brightness > 0) {
-    TPALET2(4, 0x0001);
-    TPALET2(5, TPALET2(1,-1));
-    TPALET2(6, TPALET2(2,-1));
-    TPALET2(7, TPALET2(3,-1));
-    struct TXFILLPTR txfil = { 2, 0, 0, 768, 512, 0xffff };
-    TXFILL(&txfil);
   }
 
   // reset PCM8 / PCM8A / PCM8PP / IOCS ADPCM
@@ -392,9 +394,6 @@ printf("f");
     ADPCMMOD(0);
   }
 
-  int16_t first_play = 1;
-
-loop:
   // file read buffers
   void* fread_buffer = NULL;
   void* fread_staging_buffer = NULL;
@@ -442,9 +441,6 @@ try:
   ADPCM_ENCODE_HANDLE adpcm_encoder = { 0 };
 
   // decoders
-#ifdef MP3_SUPPORT
-  MP3_DECODE_HANDLE mp3_decoder = { 0 };
-#endif
   WAV_DECODE_HANDLE wav_decoder = { 0 };
   RAW_DECODE_HANDLE raw_decoder = { 0 };
   YM2608_DECODE_HANDLE ym2608_decoder = { 0 };
@@ -479,21 +475,26 @@ try:
     }
   }
 
-#ifdef MP3_SUPPORT
-  // init mp3 decoder if needed
-  if (use_mp3_cache || input_format == FORMAT_MP3) {
-    if (mp3_decode_init(&mp3_decoder) != 0) {
-      printf("error: MP3 decoder initialization error.\n");
-      goto catch;    
-    }
-  }
-#endif
-
   // KMD artwork
   int16_t kmd_artwork = 0;
-  if (mp3_pic_brightness > 0 && use_kmd && kmd.tag_artwork[0] != '\0') {
+  if (pic_brightness > 0 && use_kmd && kmd.tag_artwork[0] != '\0') {
     printf("\rloading KMD album artwork...");
-    FILE* fp_art = fopen(kmd.tag_artwork, "rb");
+    static uint8_t artwork_file_name[ MAX_PATH_LEN ];
+    artwork_file_name[0] = '\0';
+    if (jstrchr(kmd.tag_artwork, '\\') != NULL || jstrchr(kmd.tag_artwork, '/') != NULL || jstrchr(kmd.tag_artwork, ':') != NULL) {
+      strcpy(artwork_file_name, kmd.tag_artwork);
+    } else {
+      strcpy(artwork_file_name, kmd_file_name);
+      uint8_t* c = jstrrchr(artwork_file_name, '\\');
+      if (c == NULL) c = jstrrchr(artwork_file_name, '/');
+      if (c == NULL) c = jstrrchr(artwork_file_name, ':');
+      if (c != NULL) {
+        strcpy(c + 1, kmd.tag_artwork);
+      } else {
+        strcpy(artwork_file_name, kmd.tag_artwork);
+      }
+    }
+    FILE* fp_art = fopen(artwork_file_name, "rb");
     if (fp_art != NULL) {
       fseek(fp_art, 0, SEEK_END);
       size_t pic_data_len = ftell(fp_art);
@@ -509,7 +510,7 @@ try:
         if (read_len >= pic_data_len) {
           if (pic_data[0] == 0x42 && pic_data[1] == 0x4d) {
             BMP_DECODE_HANDLE bmp_decode;
-            bmp_decode_init(&bmp_decode, mp3_pic_brightness, !full_screen);
+            bmp_decode_init(&bmp_decode, pic_brightness, !full_screen);
             if (bmp_decode_exec(&bmp_decode, pic_data, pic_data_len) == 0) {
               SCROLL(0, 512-128, 0);
               SCROLL(1, 512-128, 0);
@@ -523,7 +524,7 @@ try:
 #ifdef JPEG_SUPPORT
           } else if (pic_data[0] == 0xff && pic_data[1] == 0xd8) {
             JPEG_DECODE_HANDLE jpeg_decode;
-            jpeg_decode_init(&jpeg_decode, mp3_pic_brightness, !full_screen);
+            jpeg_decode_init(&jpeg_decode, pic_brightness, !full_screen);
             if (jpeg_decode_exec(&jpeg_decode, pic_data, pic_data_len) == 0) {
               SCROLL(0, 512-128, 0);
               SCROLL(1, 512-128, 0);
@@ -551,46 +552,8 @@ try:
     goto catch;
   }
 
-  // read the first 10 bytes of the MP3 file
-  size_t skip_offset = 0;
-#ifdef MP3_SUPPORT
-  if (use_mp3_cache || input_format == FORMAT_MP3) {
-    printf("\rparsing MP3 ID3v2 tag and album artwork...");
-    int32_t ofs = mp3_decode_parse_tags(&mp3_decoder, kmd_artwork == 0 ? mp3_pic_brightness : 0, !full_screen, fp);
-    if (ofs < 0) {
-      printf("\rerror: MP3 ID3v2 tag parse error.\x1b[0K\n");
-      goto catch;
-    }
-    skip_offset = ofs;
-    printf("\r\x1b[0K");
-    if (mp3_pic_brightness > 0) {
-      SCROLL(0, 512-128, 0);
-      SCROLL(1, 512-128, 0);
-      SCROLL(2, 512-128, 0);
-      SCROLL(3, 512-128, 0);
-      struct TXFILLPTR txfil = { 2, 128, 0, 512, 512, 0x0000 };
-      TXFILL(&txfil);
-    }
-  }
-#endif
-
-#ifdef MP3_SUPPORT
-  // in case mp3 cache mode, reopen the file
-  uint32_t mp3_data_size = 0;
-  if (use_mp3_cache) {
-    fseek(fp, 0, SEEK_END);
-    mp3_data_size = ftell(fp);
-    fclose(fp);
-    fp = fopen(pcm_cache_file_name, "rb");
-    if (fp == NULL) {
-      printf("error: cannot open input file (%s).\n", pcm_file_name);
-      goto catch;
-    }
-    skip_offset = 0;
-  }
-#endif
-
   // read header part of WAV file
+  size_t skip_offset = 0;
   if (input_format == FORMAT_WAV) {
     int32_t ofs = wav_decode_parse_header(&wav_decoder, fp);
     if (ofs < 0) {
@@ -611,44 +574,17 @@ try:
   //   mp3 ... full read
   //   pcm ... incremental (max 2 sec)
   size_t fread_buffer_len = 
-    input_format == FORMAT_MP3 ? 2 + pcm_data_size / sizeof(int16_t) : 
+//    input_format == FORMAT_MP3 ? 2 + pcm_data_size / sizeof(int16_t) : 
     input_format == FORMAT_YM2608 && (playback_driver == DRIVER_PCM8PP || playback_driver == DRIVER_PCM8A) ? CHAIN_TABLE_BUFFER_BYTES / 4 :
     pcm_freq * pcm_channels * 2;
   if (input_format != FORMAT_ADPCM) {   // ADPCM can be directly loaded to chain tables
-    fread_buffer = himem_malloc(fread_buffer_len * sizeof(int16_t), input_format == FORMAT_MP3 ? use_high_memory : 0);
+//    fread_buffer = himem_malloc(fread_buffer_len * sizeof(int16_t), input_format == FORMAT_MP3 ? use_high_memory : 0);
+    fread_buffer = himem_malloc(fread_buffer_len * sizeof(int16_t), 0);
     if (fread_buffer == NULL) {
       printf("\rerror: file read buffer memory allocation error.\n");
       goto catch;
     }
   }
-
-#ifdef MP3_SUPPORT
-  // load all of mp3 audio content into memory
-  if (input_format == FORMAT_MP3) {
-    // full read with staging buffer as high memory cannot be used for direct disk read
-    printf("\rloading MP3...\x1b[0K");
-    fread_staging_buffer = himem_malloc(FREAD_STAGING_BUFFER_BYTES, 0);
-    if (fread_staging_buffer == NULL) {
-      printf("\rerror: file read staging buffer memory allocation error.\n");
-      goto catch;
-    }    
-    size_t read_len = 0; 
-    do {
-      size_t len = fread(fread_staging_buffer, 1, FREAD_STAGING_BUFFER_BYTES, fp);
-      memcpy(fread_buffer + read_len, fread_staging_buffer, len);
-      read_len += len;
-    } while (read_len < pcm_data_size);
-    fclose(fp);
-    fp = NULL;
-    himem_free(fread_staging_buffer, 0);
-    fread_staging_buffer = NULL;
-    if (mp3_decode_setup(&mp3_decoder, fread_buffer, pcm_data_size, mp3_quality) != 0) {
-      printf("\rerror: MP3 decoder initialization error.\n");
-      goto catch;
-    }
-    printf("\r\x1b[0K");
-  }
-#endif
 
   // describe PCM attributes
   if (first_play) {
@@ -656,13 +592,8 @@ try:
     printf("\n");
 
     printf("File name     : %s\n", pcm_file_name);
-#ifdef MP3_SUPPORT
-    printf("Data size     : %d [bytes]\n", use_mp3_cache ? mp3_data_size : pcm_data_size);
-#else
     printf("Data size     : %d [bytes]\n", pcm_data_size);
-#endif
     printf("Data format   : %s\n", 
-      input_format == FORMAT_MP3 || use_mp3_cache ? "MP3" : 
       input_format == FORMAT_WAV ? "WAV" :
       input_format == FORMAT_YM2608 ? "ADPCM(YM2608)" :
       input_format == FORMAT_RAW && !use_little_endian ? "16bit signed raw PCM (big)" : 
@@ -687,7 +618,7 @@ try:
       }
     }
 
-    if (!use_mp3_cache && input_format == FORMAT_RAW) {
+    if (input_format == FORMAT_RAW) {
       float pcm_1sec_size = pcm_freq * 2;
       printf("PCM frequency : %d [Hz]\n", pcm_freq);
       printf("PCM channels  : %s\n", pcm_channels == 1 ? "mono" : "stereo");
@@ -699,7 +630,7 @@ try:
       }
     }
 
-    if (!use_mp3_cache && input_format == FORMAT_YM2608) {
+    if (input_format == FORMAT_YM2608) {
       float pcm_1sec_size = pcm_freq * 0.5;
       printf("PCM frequency : %d [Hz]\n", pcm_freq);
       printf("PCM channels  : %s\n", pcm_channels == 1 ? "mono" : "stereo");
@@ -711,7 +642,7 @@ try:
       }
     }
 
-    if (!use_mp3_cache && input_format == FORMAT_WAV) {
+    if (input_format == FORMAT_WAV) {
       printf("PCM frequency : %d [Hz]\n", pcm_freq);
       printf("PCM channels  : %s\n", pcm_channels == 1 ? "mono" : "stereo");
       printf("PCM length    : %4.2f [sec]\n", (float)wav_decoder.duration / pcm_freq);
@@ -721,29 +652,6 @@ try:
         if (kmd.tag_album[0]  != '\0') printf("KMD album     : %s\n", kmd.tag_album);
       }
     }
-
-#ifdef MP3_SUPPORT
-    // describe MP3 information
-    if (use_mp3_cache || input_format == FORMAT_MP3) {
-      if (use_mp3_cache) {
-        printf("MP3 quality   : %s (%s)\n", "cache use", pcm_cache_file_name);
-      } else {
-        printf("MP3 quality   : %s\n",
-          mp3_quality == 2 ? "low" :
-          mp3_quality == 1 ? "normal" : 
-          "high");
-      }
-      if (mp3_decoder.mp3_title != NULL) {
-        printf("MP3 title     : %s\n", mp3_decoder.mp3_title);
-      }
-      if (mp3_decoder.mp3_artist != NULL) {
-        printf("MP3 artist    : %s\n", mp3_decoder.mp3_artist);
-      }
-      if (mp3_decoder.mp3_album != NULL) {
-        printf("MP3 album     : %s\n", mp3_decoder.mp3_album);
-      }
-    }
-#endif
 
     printf("\n");
 
@@ -860,21 +768,6 @@ try:
           wav_decode_convert_endian(&wav_decoder, chain_tables[i].buffer, fread_buffer, fread_len);
         chain_tables[i].buffer_bytes = resampled_len * sizeof(int16_t);
 
-#ifdef MP3_SUPPORT
-      } else if (input_format == FORMAT_MP3) {
-
-        // MP3 with PCM8PP
-        size_t decoded_bytes;
-        if (mp3_decode_full(&mp3_decoder, chain_tables[i].buffer, CHAIN_TABLE_BUFFER_BYTES, &decoded_bytes) != 0) {
-          printf("\rerror: mp3 decode error.\x1b[0K");
-          goto catch;
-        }
-        chain_tables[i].buffer_bytes = decoded_bytes;
-        if (decoded_bytes == 0) {
-          chain_tables[i].next = NULL;
-          end_flag = 1;
-        }
-#endif
       }
 
     } else if (playback_driver == DRIVER_PCM8A) {
@@ -952,21 +845,6 @@ try:
           wav_decode_resample(&wav_decoder, chain_tables[i].buffer, adpcm_output_freq, fread_buffer, fread_len, 16);
         chain_tables[i].buffer_bytes = resampled_len * sizeof(int16_t);
 
-#ifdef MP3_SUPPORT
-      } else if (input_format == FORMAT_MP3) {
-
-        // MP3 (resampled) with PCM8A
-        size_t resampled_len;
-        if (mp3_decode_resample(&mp3_decoder, chain_tables[i].buffer, CHAIN_TABLE_BUFFER_BYTES / sizeof(int16_t), adpcm_output_freq, &resampled_len) != 0) {
-          printf("\rerror: mp3 decode error.\x1b[0K");
-          goto catch;
-        }
-        chain_tables[i].buffer_bytes = resampled_len * sizeof(int16_t);
-        if (resampled_len == 0) {
-          chain_tables[i].next = NULL;
-          end_flag = 1;
-        }
-#endif 
       }
 
     } else {
@@ -1042,21 +920,6 @@ try:
           adpcm_encode_resample(&adpcm_encoder, chain_tables[i].buffer, adpcm_output_freq, fread_buffer, fread_len, pcm_freq, pcm_channels, 1);
         chain_tables[i].buffer_bytes = resampled_len;
 
-#ifdef MP3_SUPPORT
-      } else if (input_format == FORMAT_MP3) {
-
-        // MP3 (resampled)
-        size_t resampled_len;
-        if (mp3_decode_resample_adpcm_encode(&mp3_decoder, &adpcm_encoder, chain_tables[i].buffer, CHAIN_TABLE_BUFFER_BYTES, adpcm_output_freq, &resampled_len) != 0) {
-          printf("\rerror: mp3 decode error.\x1b[0K");
-          goto catch;
-        }
-        chain_tables[i].buffer_bytes = resampled_len;
-        if (resampled_len == 0) {
-          chain_tables[i].next = NULL;
-          end_flag = 1;
-        }
-#endif
       }
 
     }
@@ -1071,16 +934,6 @@ try:
 
   // start playing
   if (playback_driver == DRIVER_PCM8PP) {
-
-#ifdef MP3_SUPPORT
-    if (input_format == FORMAT_MP3) {
-      pcm_freq = mp3_decoder.mp3_sample_rate;
-      pcm_channels = mp3_decoder.mp3_channels;
-#ifdef DEBUG
-      printf("mp3 freq=%d,channels=%d\n",pcm_freq,pcm_channels);
-#endif      
-    }
-#endif
 
     int16_t pcm8pp_volume = playback_volume;
     int16_t pcm8pp_pan = 0x03;
@@ -1147,7 +1000,7 @@ try:
 
   }
 
-  B_PRINT("\rnow playing ... push [ESC]/[Q] key to quit. [SPACE] to pause.\x1b[0K");
+  B_PRINT("\rnow playing ... push [ESC]/[Q] key to quit. [SPACE] to pause. [RIGHT] to skip.\x1b[0K");
   int16_t paused = 0;
   uint32_t pause_time;
 
@@ -1180,6 +1033,11 @@ try:
         B_PRINT("\rstopped.\x1b[0K");
         rc = 1;
         break;
+      } else if (scan_code == KEY_SCAN_CODE_RIGHT) {
+        if (use_kmd) B_PRINT("\n\n");
+        B_PRINT("\rskipped.\x1b[0K\n");
+        rc = 2;
+        break;      
       } else if (scan_code == KEY_SCAN_CODE_SPACE) {
         if (paused) {
           if (playback_driver == DRIVER_PCM8PP) {
@@ -1397,21 +1255,6 @@ try:
             wav_decode_convert_endian(&wav_decoder, cta->buffer, fread_buffer, fread_len);
           cta->buffer_bytes = resampled_len * sizeof(int16_t);
 
-#ifdef MP3_SUPPORT
-        } else if (input_format == FORMAT_MP3) {
-
-          // MP3 with PCM8PP
-          size_t decoded_bytes;
-          if (mp3_decode_full(&mp3_decoder, cta->buffer, CHAIN_TABLE_BUFFER_BYTES, &decoded_bytes) != 0) {
-            printf("\rerror: mp3 decode error.\x1b[0K");
-            goto catch;
-          }
-          cta->buffer_bytes = decoded_bytes;
-          if (decoded_bytes == 0) {
-            cta->next = NULL;
-            end_flag = 1;
-          }
-#endif
         }
 
       } else if (playback_driver == DRIVER_PCM8A) {
@@ -1488,21 +1331,6 @@ try:
             wav_decode_resample(&wav_decoder, cta->buffer, adpcm_output_freq, (int16_t*)fread_buffer, fread_len, 16);
           cta->buffer_bytes = resampled_len * sizeof(int16_t);
 
-#ifdef MP3_SUPPORT
-        } else if (input_format == FORMAT_MP3) {
-
-          // MP3 decode and ADPCM encode
-          size_t resampled_len;
-          if (mp3_decode_resample(&mp3_decoder, cta->buffer, CHAIN_TABLE_BUFFER_BYTES / sizeof(int16_t), adpcm_output_freq, &resampled_len) != 0) {
-            B_PRINT("\rerror: mp3 decode error.\x1b[0K");
-            goto catch;
-          }
-          cta->buffer_bytes = resampled_len * sizeof(int16_t);
-          if (resampled_len == 0) {
-            cta->next = NULL;
-            end_flag = 1;
-          }
-#endif
         }
 
       } else {
@@ -1578,21 +1406,6 @@ try:
             adpcm_encode_resample(&adpcm_encoder, cta->buffer, adpcm_output_freq, fread_buffer, fread_len, pcm_freq, pcm_channels, 1);
           cta->buffer_bytes = resampled_len;
 
-#ifdef MP3_SUPPORT
-        } else if (input_format == FORMAT_MP3) {
-
-          // MP3 (resampled)
-          size_t resampled_len;
-          if (mp3_decode_resample_adpcm_encode(&mp3_decoder, &adpcm_encoder, cta->buffer, CHAIN_TABLE_BUFFER_BYTES, adpcm_output_freq, &resampled_len) != 0) {
-            printf("\rerror: mp3 decode error.\x1b[0K");
-            goto catch;
-          }
-          cta->buffer_bytes = resampled_len;
-          if (resampled_len == 0) {
-            cta->next = NULL;
-            end_flag = 1;
-          }
-#endif
         }
 
       }
@@ -1635,7 +1448,8 @@ catch:
     fread_staging_buffer = NULL;
   }
   if (fread_buffer != NULL) {
-    himem_free(fread_buffer, input_format == FORMAT_MP3 ? use_high_memory : 0);
+//    himem_free(fread_buffer, input_format == FORMAT_MP3 ? use_high_memory : 0);
+    himem_free(fread_buffer, 0);
     fread_buffer = NULL;
   }
 
@@ -1656,13 +1470,6 @@ catch:
   if (input_format == FORMAT_WAV) {
     wav_decode_close(&wav_decoder);
   }
-
-#ifdef MP3_SUPPORT
-  // close mp3 decoder
-  if (input_format == FORMAT_MP3) {
-    mp3_decode_close(&mp3_decoder);
-  }
-#endif
 
   // enable pcm8 polyphonic mode
   if (pcm8_type != PCM8_TYPE_NONE) {
@@ -1685,22 +1492,44 @@ catch:
   }
 
   // loop check
-  if (rc == 0) {
-    if (loop_count == 0 || --loop_count > 0) {
-      goto loop;
+  if (rc == 0 || rc == 2) {
+    if (num_pcm_files > 1) {
+      // playlist mode
+      playback_index++;
+      if (playback_index < num_pcm_files) {
+        first_play = 1;
+        goto loop;
+      }
+      if (loop_count == 0 || --loop_count > 0) {
+        playback_index = 0;
+        first_play = 1;
+        goto loop;
+      }
+    } else {
+      // single play mode
+      if (loop_count == 0 || --loop_count > 0) {
+        goto loop;
+      }
     }
   }
 
   B_PRINT("\r\n");
 
 exit:
+
+  // reclaim indirect file buffer
+  if (indirect_file_names != NULL) {
+    himem_free(indirect_file_names, 0);
+    indirect_file_names = NULL;
+  }
+
   // flush key buffer
   while (B_KEYSNS() != 0) {
     B_KEYINP();
   }
 
   // reset scroll position
-  if (mp3_pic_brightness > 0) {
+  if (pic_brightness > 0) {
     SCROLL(0, 0, 0);
     SCROLL(1, 0, 0);
     SCROLL(2, 0, 0);
