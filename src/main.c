@@ -276,17 +276,21 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
   uint32_t abort_vector1 = INTVCS(0xFFF1, (int8_t*)abort_application);
   uint32_t abort_vector2 = INTVCS(0xFFF2, (int8_t*)abort_application);  
 
-  // enter supervisor mode and init crtc if album art is required
+  // enter supervisor mode
   if (pic_brightness > 0) {
     B_SUPER(0);
-    G_CLR_ON();
-    crtc_set_extra_mode(0);
   }
 
   int16_t playback_index = 0;
   int16_t first_play = 1;
 
 loop:
+
+  // init crtc if album art is required
+  if (pic_brightness > 0) {
+    G_CLR_ON();
+    crtc_set_extra_mode(0);
+  }
 
   // full screen mode
   if (full_screen) {
