@@ -1057,11 +1057,11 @@ try:
         B_PRINT("\rskipped.\x1b[0K\n");
         rc = 2;
         break;
-      } else if (playback_index > 0 && scan_code == KEY_SCAN_CODE_LEFT) {
-        if (use_kmd) B_PRINT("\n\n");
-        B_PRINT("\rbacked.\x1b[0K\n");
-        rc = 3;
-        break;
+//      } else if (playback_index > 0 && scan_code == KEY_SCAN_CODE_LEFT) {
+//        if (use_kmd) B_PRINT("\n\n");
+//        B_PRINT("\rbacked.\x1b[0K\n");
+//        rc = 3;
+//        break;
       } else if (scan_code == KEY_SCAN_CODE_SPACE) {
         if (paused) {
           if (playback_driver == DRIVER_PCM8PP) {
@@ -1535,10 +1535,10 @@ catch:
         goto loop;
       }
     }
-  } else if (rc == 3) {
-    playback_index--;
-    first_play = 1;
-    goto loop;
+//  } else if (rc == 3) {
+//    playback_index--;
+//    first_play = 1;
+//    goto loop;
   }
 
   B_PRINT("\r\n");
