@@ -23,7 +23,9 @@ ADPCM/PCM/WAV player for X680x0/Human68k
 
 注意：PCM8A.X / PCM8PP.X のいずれも組み込まない場合は S44EXP.X 自身による内蔵ADPCM再生となりますが、歌詞データ表示での遅れが目立つ場合がありますので、いずれかの組み込みを推奨します。
 
-注意：PCM8PPはデフォルトで再生周波数44.1kHzとなります。S48/M48などの48kHzのPCMデータを再生するためにはPCM8PPのコマンドラインオプションで48kHzの再生周波数を指定する必要があります。
+注意：PCM8PP.X を使って SCSIディスク上のファイルを Mercurty-Unit から再生させる場合は、[HSCSI.X](http://retropc.net/x68000/software/disk/scsi/hscsi/) の導入を強く推奨します。導入していない場合はプチノイズが発生する場合があります。
+
+注意：PCM8PP.X はデフォルトで再生周波数44.1kHzとなります。S48/M48などの48kHzのPCMデータを再生するためにはPCM8PPのコマンドラインオプションで48kHzの再生周波数を指定する必要があります。
 
 ---
 
