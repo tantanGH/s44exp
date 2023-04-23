@@ -160,5 +160,3 @@ KMDは表示上のタイミングの微妙なずれなどがあり得るため�
 <img src='images/s44exp3.png' width='800'/>
 
 <img src='images/s44exp4.png' width='800'/>
-
-<img src='images/s44exp1.png' width='800'/>
