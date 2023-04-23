@@ -27,6 +27,8 @@ ADPCM/PCM/WAV player for X680x0/Human68k
 
 注意：PCM8PP.X はデフォルトで再生周波数44.1kHzとなります。S48/M48などの48kHzのPCMデータを再生するためにはPCM8PPのコマンドラインオプションで48kHzの再生周波数を指定する必要があります。
 
+注意：本プログラムは元となった MP3EXP.X で対応していた MP3 の再生には対応していません。コンバータ [MP3CONV.X](https://github.com/tantanGH/mp3conv) を使って事前にコンバートしてください。
+
 ---
 
 ### インストール方法
