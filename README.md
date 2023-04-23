@@ -1,10 +1,25 @@
 # S44EXP.X
 ADPCM/PCM/WAV player for X680x0/Human68k
 
-[MP3EXP.X](https://github.com/tantanGH/mp3exp)からMP3のサポートを外して軽量化したものになります。(ファイルサイズ1/3以下)
-MP3以外の機能はほぼ同じですが、複数PCMファイル名指定やインダイレクトファイルによるプレイリスト再生に対応しています。
+以下の形式のファイルを再生するプレーヤーです。ファイルの種別は拡張子で判断します。
 
-それ以外の使い方などは MP3EXP.X の説明を参考にしてください。
+ - X68k(MSM6258V) ADPCM 15.6kHz mono (.PCM)
+ - 16bit符号付き big endian raw PCM (.S32/.S44/.S48/.M32/.M44/.M48)
+ - 16bit符号付き WAV (.WAV)
+ - 4bit符号付き YM2608 ADPCM (.A32/.A44/.A48/.N32/.N44/.N48)
+
+以下のような特徴があります。
+
+- インダイレクトファイルによるプレイリスト再生に対応しています。
+- KMD歌詞データの表示に対応しています。
+- KMD歌詞データエディタKMDEDのタグ情報・アルバムアート表示に対応しています。
+
+<img src='images/s44exp1.png' width='800'/>
+
+出力デバイスはX68k内蔵ADPCMまたはMercury-Unitになります。組み込むPCM8ドライバによって決まります。
+
+- PCM8A.X(出力先は内蔵ADPCM) ... すべての形式がリアルタイムに内蔵ADPCMの音声に変換されて出力されます。
+- PCM8PP.X(出力先はMercury-Unit) ... 内蔵ADPCM形式も含めたすべての形式の音声がMercury-Unitから出力されます。
 
 ---
 
